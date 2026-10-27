@@ -5,6 +5,19 @@ Single player against computer opponents — no install, no server.
 
 **▶ Play:** https://robjos1-coder.github.io/age-of-ai-kingdoms/ *(once GitHub Pages is enabled)*
 
+## Easy-play edition (changes in this fork)
+
+- **Quick Play** button: one tap starts a 1 vs 1 game against an Easy AI on a small map.
+- **Two civilizations** only: **Britons** (archers) and **Franks** (cavalry). Older saves with other civilizations still load.
+- **Simpler New Game screen**: pick a civilization card, an opponent level and a map. Players, teams and rules are under *More options*.
+- **Beginner tips**: a 9-step guide during your first games (Town Center → houses → villagers → wood → barracks → Feudal Age → army → attack), plus a warning when your population is full.
+- **Easy-play helpers** (all on by default, all can be turned off in Settings → Easy play):
+  - Idle villagers find work on their own, balancing food, wood and gold. When wild food runs out they build a Mill and Farms.
+  - A villager builds a House automatically when population is nearly full.
+  - Town Centers start with auto-train villagers on.
+  - A green ✔ side button sends every idle villager back to work.
+- **Faster on phones**: phones default to the light classic graphics (about 1–2 s to start instead of downloading ~25 MB of textures), Low quality on most phones, and **auto graphics** that steps quality down if the frame rate stays under ~28 fps.
+
 ## Features
 
 - **Four ages** — Dark, Feudal, Castle, Imperial — with the AoE2 "two buildings + resources" advancement rule; buildings change style each age.
