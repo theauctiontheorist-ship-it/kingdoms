@@ -1,4 +1,4 @@
-import { AGE_NAMES, CIVS, CIV_LIST, PLAYER_COLORS, PLAYER_COLOR_NAMES, unitDef, type CivId } from '../data/defs';
+import { AGE_NAMES, CIVS, CIV_BLURB, CIV_LIST, PLAYABLE_CIVS, PLAYER_COLORS, PLAYER_COLOR_NAMES, unitDef, type CivId } from '../data/defs';
 import type { Settings } from '../sim/types';
 import { applyAudioSettings, audioSettings, music, play } from '../audio/sfx';
 import { SAVE_KEYS, type App } from './app';
@@ -16,6 +16,9 @@ const MAPS: [Settings['mapType'], string, string][] = [
 ];
 const SIZES: [number, string][] = [[96, 'Tiny (96)'], [120, 'Small (120)'], [144, 'Medium (144)'], [168, 'Large (168)']];
 const DIFFS = ['Easy', 'Moderate', 'Hard', 'Hardest', 'Extreme'];
+/** Difficulties offered as one-tap chips on the simplified setup screen. */
+const QUICK_DIFFS = [0, 1, 2];
+const QUICK_MAPS: Settings['mapType'][] = ['arabia', 'black_forest', 'lakes', 'highland'];
 const DIFF_DESC = [
   'Slow, relaxed opponents that gather 20% slower and attack late. Good for learning.',
   'A fair fight at normal gather rates.',
@@ -30,6 +33,19 @@ export class Menus {
   root: HTMLDivElement;
   setup: { mapType: Settings['mapType']; mapSize: number; players: SetupPlayer[]; startRes: Settings['startRes']; startAge: number; popCap: number; victory: Settings['victory']; reveal: Settings['reveal'] };
 
+  private advOpen = false;
+
+  /** Copy the advanced rule selects back into the setup before the screen re-renders. */
+  private keepRules() {
+    const v = (id: string) => (this.root.querySelector(id) as HTMLSelectElement | null)?.value;
+    const s = this.setup;
+    s.startRes = (v('#s-res') ?? s.startRes) as Settings['startRes'];
+    s.startAge = +(v('#s-age') ?? s.startAge);
+    s.popCap = +(v('#s-pop') ?? s.popCap);
+    s.victory = (v('#s-vic') ?? s.victory) as Settings['victory'];
+    s.reveal = (v('#s-rev') ?? s.reveal) as Settings['reveal'];
+  }
+
   constructor(app: App) {
     this.app = app;
     this.root = document.createElement('div');
@@ -38,12 +54,31 @@ export class Menus {
     this.setup = {
       mapType: 'arabia', mapSize: 120,
       players: [
-        { civ: 'franks', human: true, team: 0, diff: 1, color: 1, name: 'You' },
-        { civ: 'random', human: false, team: 0, diff: 1, color: 2, name: AI_NAMES[Math.floor(Math.random() * AI_NAMES.length)] },
+        { civ: 'britons', human: true, team: 0, diff: 0, color: 1, name: 'You' },
+        { civ: 'random', human: false, team: 0, diff: 0, color: 2, name: AI_NAMES[Math.floor(Math.random() * AI_NAMES.length)] },
       ],
       startRes: 'standard', startAge: 1, popCap: 150, victory: 'standard', reveal: 'normal',
     };
     try { Object.assign(this.setup, JSON.parse(localStorage.getItem(SETUP_KEY) ?? '{}')); } catch { /* ignore */ }
+    // Only two civilizations are playable now; older setups may name others.
+    for (const p of this.setup.players) if (p.civ !== 'random' && !PLAYABLE_CIVS.includes(p.civ)) p.civ = p.human ? 'britons' : 'random';
+    if (!this.setup.players.some((p) => p.human)) this.setup.players.unshift({ civ: 'britons', human: true, team: 0, diff: 0, color: 1, name: 'You' });
+  }
+
+  /** One tap: 1 vs 1 against an Easy AI on a small open map, with tips on. */
+  quickPlay() {
+    const human = this.setup.players.find((p) => p.human)!;
+    const civ: CivId = human.civ === 'random' ? 'britons' : human.civ;
+    const settings: Settings = {
+      mapType: 'arabia', mapSize: 96,
+      players: [
+        { civ, human: true, team: 0, diff: 0, color: human.color || 1, name: human.name || 'You' },
+        { civ: 'random', human: false, team: 0, diff: 0, color: human.color === 2 ? 1 : 2, name: AI_NAMES[Math.floor(Math.random() * AI_NAMES.length)] },
+      ],
+      startRes: 'medium', startAge: 1, popCap: 100, victory: 'conquest', reveal: 'normal',
+      speed: this.app.prefs.speed, seed: Math.floor(Math.random() * 1e9),
+    };
+    this.app.start(settings);
   }
 
   private open(html: string, dim = false) {
@@ -72,7 +107,9 @@ export class Menus {
       <div class="sub">A real-time strategy game of four ages</div>
       <div class="menu-btns">
         ${auto ? `<button class="btn primary" id="m-continue">Continue <small style="opacity:.7">(${fmtTime(auto.time)}, ${AGE_NAMES[auto.age]})</small></button>` : ''}
-        <button class="btn ${auto ? '' : 'primary'}" id="m-new">New Game</button>
+        <button class="btn big ${auto ? '' : 'primary'}" id="m-quick">▶ Quick Play</button>
+        <div class="menu-sub">1 vs 1 · Easy opponent · small map · tips on</div>
+        <button class="btn" id="m-new">Custom Game</button>
         <button class="btn" id="m-load">Load Game</button>
         <button class="btn" id="m-civs">Civilizations</button>
         <button class="btn" id="m-help">How to Play</button>
@@ -80,6 +117,7 @@ export class Menus {
       </div>
       <div class="version">Single player vs AI · Built with Three.js · Inspired by Age of Empires II and <a style="color:#c8a060" href="https://github.com/alexvilelabah/age-of-ai" target="_blank" rel="noopener">Age of AI</a></div>`);
     this.on('#m-continue', () => this.app.loadFrom(SAVE_KEYS[0]));
+    this.on('#m-quick', () => this.quickPlay());
     this.on('#m-new', () => this.showSetup());
     this.on('#m-load', () => this.showLoad(() => this.showMain()));
     this.on('#m-civs', () => this.showCivs());
@@ -90,6 +128,7 @@ export class Menus {
   // ------------------------------------------------------------------ setup
 
   showSetup() {
+    this.keepRules();
     const s = this.setup;
     const civOpts = (sel: string) => `<option value="random"${sel === 'random' ? ' selected' : ''}>Random</option>` + CIV_LIST.map((c) => `<option value="${c.id}"${c.id === sel ? ' selected' : ''}>${c.name}</option>`).join('');
     const rows = s.players.map((p, i) => `
@@ -102,35 +141,45 @@ export class Menus {
         ${p.human ? '<span class="xs"></span>' : '<button class="x" data-act="del" aria-label="Remove player">✕</button>'}
       </div>`).join('');
     const human = s.players.find((p) => p.human)!;
-    const hc = human.civ === 'random' ? null : CIVS[human.civ];
+    const ais = s.players.filter((p) => !p.human);
+    const aiDiff = ais.every((p) => p.diff === ais[0]?.diff) ? ais[0]?.diff ?? 0 : -1;
+    const civCards = CIV_LIST.map((c) => `<button class="pick-card${human.civ === c.id ? ' on' : ''}" data-civ="${c.id}">
+        <span class="pc-name">${c.name}</span><span class="pc-desc">${CIV_BLURB[c.id] ?? ''}</span>
+        <span class="pc-desc" style="color:var(--muted)">Special unit: ${unitDef(c.unique).name}</span></button>`).join('');
+    const diffChips = QUICK_DIFFS.map((k) => `<button class="chip${aiDiff === k ? ' on' : ''}" data-diff="${k}">${DIFFS[k]}</button>`).join('');
+    const mapChips = QUICK_MAPS.map((k) => `<button class="chip${s.mapType === k ? ' on' : ''}" data-map="${k}">${MAPS.find((m) => m[0] === k)![1]}</button>`).join('');
     this.open(`
       <h2>New Game</h2>
+      <h3>Your civilization</h3>
+      <div class="pick">${civCards}</div>
+      <h3>Opponent</h3>
+      <div class="chips">${diffChips}</div>
+      <div class="civinfo" id="s-diffdesc" style="margin:0">${DIFF_DESC[Math.max(0, aiDiff)]}</div>
+      <h3>Map</h3>
+      <div class="chips">${mapChips}</div>
+      <div class="civinfo" id="s-mapdesc2">${MAPS.find((m) => m[0] === s.mapType)?.[2]}</div>
+      <div class="row" style="margin-top:16px;justify-content:space-between">
+        <button class="btn" id="s-back">Back</button>
+        <button class="btn primary big" id="s-start">Start Game ▶</button>
+      </div>
+      <details class="adv" id="s-adv"${this.advOpen ? ' open' : ''}><summary>More options (players, teams, rules)</summary>
       <div class="grid2">
-        <label class="f">AI difficulty (all opponents)<select id="s-diff">${DIFFS.map((d, k) => `<option value="${k}"${s.players.filter((p) => !p.human).every((p) => p.diff === k) ? ' selected' : ''}>${d}</option>`).join('')}</select></label>
-        <div class="civinfo" id="s-diffdesc" style="margin:0">${DIFF_DESC[s.players.find((p) => !p.human)?.diff ?? 1]}</div>
+        <label class="f">AI difficulty (all opponents)<select id="s-diff">${DIFFS.map((d, k) => `<option value="${k}"${aiDiff === k ? ' selected' : ''}>${d}</option>`).join('')}</select></label>
+        <label class="f">Map type<select id="s-map">${MAPS.map(([k, n]) => `<option value="${k}"${k === s.mapType ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
       </div>
       <h3>Players</h3>
       ${rows}
       <div class="row"><button class="btn small" id="s-add" ${s.players.length >= 6 ? 'disabled' : ''}>+ Add AI opponent</button></div>
-      ${hc ? `<div class="civinfo"><b>${hc.name}</b> — Unique unit: <b>${unitDef(hc.unique).name}</b><br>${hc.bonuses.map((b) => '• ' + b).join('<br>')}</div>` : ''}
-      <h3>Map</h3>
-      <div class="grid2">
-        <label class="f">Map type<select id="s-map">${MAPS.map(([k, n]) => `<option value="${k}"${k === s.mapType ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
-        <label class="f">Map size<select id="s-size">${SIZES.map(([k, n]) => `<option value="${k}"${k === s.mapSize ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
-      </div>
-      <div class="civinfo" id="s-mapdesc">${MAPS.find((m) => m[0] === s.mapType)?.[2]}</div>
       <h3>Rules</h3>
       <div class="grid2">
+        <label class="f">Map size<select id="s-size">${SIZES.map(([k, n]) => `<option value="${k}"${k === s.mapSize ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
         <label class="f">Starting resources<select id="s-res"><option value="standard">Standard</option><option value="medium">Medium</option><option value="high">High</option></select></label>
         <label class="f">Starting age<select id="s-age">${[1, 2, 3, 4].map((a) => `<option value="${a}">${AGE_NAMES[a]}</option>`).join('')}</select></label>
         <label class="f">Population limit<select id="s-pop">${[75, 100, 125, 150, 200].map((n) => `<option value="${n}">${n}</option>`).join('')}</select></label>
         <label class="f">Victory<select id="s-vic"><option value="standard">Standard (conquest, wonder, relics)</option><option value="conquest">Conquest only</option></select></label>
         <label class="f">Reveal map<select id="s-rev"><option value="normal">Normal</option><option value="explored">Explored</option><option value="all">All visible</option></select></label>
       </div>
-      <div class="row" style="margin-top:16px;justify-content:space-between">
-        <button class="btn" id="s-back">Back</button>
-        <button class="btn primary" id="s-start">Start Game ▶</button>
-      </div>`);
+      </details>`);
     const q = <T extends HTMLElement>(sel: string) => this.root.querySelector(sel) as T;
     (q<HTMLSelectElement>('#s-res')).value = s.startRes;
     (q<HTMLSelectElement>('#s-age')).value = String(s.startAge);
@@ -167,11 +216,16 @@ export class Menus {
       if (s.players.length > 4 && s.mapSize < 144) s.mapSize = 144;
       this.showSetup();
     });
-    q('#s-map').addEventListener('change', (e) => { s.mapType = (e.target as HTMLSelectElement).value as Settings['mapType']; q('#s-mapdesc').textContent = MAPS.find((m) => m[0] === s.mapType)?.[2] ?? ''; });
+    q('#s-map').addEventListener('change', (e) => { s.mapType = (e.target as HTMLSelectElement).value as Settings['mapType']; this.keepRules(); this.showSetup(); });
+    q('#s-adv').addEventListener('toggle', () => { this.advOpen = (q('#s-adv') as HTMLDetailsElement).open; });
+    this.on('[data-civ]', (el) => { human.civ = el.dataset.civ as CivId; this.keepRules(); this.showSetup(); });
+    this.on('[data-diff]', (el) => { for (const p of s.players) if (!p.human) p.diff = +el.dataset.diff!; this.keepRules(); this.showSetup(); });
+    this.on('[data-map]', (el) => { s.mapType = el.dataset.map as Settings['mapType']; this.keepRules(); this.showSetup(); });
     q('#s-size').addEventListener('change', (e) => { s.mapSize = +(e.target as HTMLSelectElement).value; });
     q('#s-diff').addEventListener('change', (e) => {
       const k = +(e.target as HTMLSelectElement).value;
       for (const p of s.players) if (!p.human) p.diff = k;
+      this.keepRules();
       this.showSetup();
     });
     this.on('#s-back', () => this.showMain());
@@ -277,6 +331,15 @@ export class Menus {
     const pr = this.app.prefs;
     this.open(`
       <h2>Settings</h2>
+      <h3 style="margin-top:0">Easy play</h3>
+      <div class="grid2">
+        <label class="f"><span><input type="checkbox" id="o-tut"> Beginner tips</span><small class="sub">Step-by-step hints during your game.</small></label>
+        <label class="f"><span><input type="checkbox" id="o-work"> Idle villagers find work</span><small class="sub">Villagers left doing nothing go gather food, wood or gold on their own.</small></label>
+        <label class="f"><span><input type="checkbox" id="o-house"> Auto-build houses</span><small class="sub">A villager builds a House near your Town Center when you are running out of room.</small></label>
+        <label class="f"><span><input type="checkbox" id="o-train"> Auto-train villagers</span><small class="sub">Town Centers keep making villagers at the start of a game.</small></label>
+        <label class="f"><span><input type="checkbox" id="o-aq"> Auto graphics</span><small class="sub">Lowers graphics automatically if the game gets slow.</small></label>
+      </div>
+      <h3>Graphics &amp; sound</h3>
       <div class="grid2">
         <label class="f">Graphics quality<select id="o-q"><option value="low">Low (fast, no shadows)</option><option value="medium">Medium</option><option value="high">High</option></select></label>
         <label class="f"><span><input type="checkbox" id="o-fullres"> Full screen resolution</span><small class="sub">High quality only. Renders every screen pixel (sharpest, but slower on phones).</small></label>
@@ -311,6 +374,11 @@ export class Menus {
     q<HTMLInputElement>('#o-twist').checked = pr.twistRotate;
     q<HTMLInputElement>('#o-hk').checked = pr.showHotkeys;
     q<HTMLInputElement>('#o-edge').checked = pr.edgeScroll;
+    q<HTMLInputElement>('#o-tut').checked = pr.tutorial;
+    q<HTMLInputElement>('#o-work').checked = pr.autoWork;
+    q<HTMLInputElement>('#o-train').checked = pr.autoTrain;
+    q<HTMLInputElement>('#o-house').checked = pr.autoHouse;
+    q<HTMLInputElement>('#o-aq').checked = pr.autoQuality;
     const apply = () => {
       pr.quality = q<HTMLSelectElement>('#o-q').value as typeof pr.quality;
       pr.realism = q<HTMLInputElement>('#o-realism').checked;
@@ -329,6 +397,11 @@ export class Menus {
       pr.twistRotate = q<HTMLInputElement>('#o-twist').checked;
       pr.showHotkeys = q<HTMLInputElement>('#o-hk').checked;
       pr.edgeScroll = q<HTMLInputElement>('#o-edge').checked;
+      pr.tutorial = q<HTMLInputElement>('#o-tut').checked;
+      pr.autoWork = q<HTMLInputElement>('#o-work').checked;
+      pr.autoTrain = q<HTMLInputElement>('#o-train').checked;
+      pr.autoHouse = q<HTMLInputElement>('#o-house').checked;
+      pr.autoQuality = q<HTMLInputElement>('#o-aq').checked;
       Object.assign(audioSettings, { sfx: pr.sfx, music: pr.music, muted: pr.muted });
       applyAudioSettings();
       this.app.renderer?.setQuality(pr.quality);
@@ -350,13 +423,20 @@ export class Menus {
   // ------------------------------------------------------------------ info screens
 
   showCivs() {
-    const html = CIV_LIST.map((c) => `<div class="civinfo"><b style="font-size:15px">${c.name}</b> — unique unit <b>${unitDef(c.unique).name}</b>: ${unitDef(c.unique).desc}<br>${c.bonuses.map((b) => '• ' + b).join('<br>')}</div>`).join('');
+    const html = CIV_LIST.map((c) => `<div class="civinfo"><b style="font-size:15px">${c.name}</b> — ${CIV_BLURB[c.id] ?? ''}<br>Unique unit <b>${unitDef(c.unique).name}</b>: ${unitDef(c.unique).desc}<br>${c.bonuses.map((b) => '• ' + b).join('<br>')}</div>`).join('');
     this.open(`<h2>Civilizations</h2>${html}<div class="row" style="margin-top:12px"><button class="btn" id="c-back">Back</button></div>`);
     this.on('#c-back', () => this.showMain());
   }
 
   showHelp(back: () => void) {
     this.open(`<h2>How to Play</h2><div class="help">
+      <h3>Quick start</h3>
+      <ol>
+        <li>Keep your <b>Town Center</b> making villagers (Auto does this for you).</li>
+        <li>Villagers gather <b>food</b> (sheep, berries) and <b>wood</b> (trees). The green ✔ button sends idle villagers back to work.</li>
+        <li>Build a <b>House</b> for every 5 people, then a <b>Barracks</b> for soldiers.</li>
+        <li>Advance to the <b>Feudal Age</b>, train an army, select it with the ⚔ button, and tap enemy buildings to attack.</li>
+      </ol>
       <p><b>Goal:</b> destroy all enemy units and buildings (Conquest), or build a Wonder and defend it for 400 seconds, or hold every Relic in your Monasteries for 400 seconds.</p>
       <h3>Touch controls</h3>
       <ul>

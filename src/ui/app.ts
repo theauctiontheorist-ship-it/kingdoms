@@ -11,6 +11,7 @@ import { ICON, BUILDING_ROLE, techIcon } from './icons';
 import { Hud } from './hud';
 import { Input } from './input';
 import { Menus } from './menus';
+import { AutoQuality, Tutorial, autoHouse, autoWork } from './assist';
 
 export interface Cmd {
   key: string;
@@ -55,9 +56,22 @@ export interface Prefs {
   /** What a one-finger drag does on touch screens (two fingers always pan/zoom). */
   oneFinger: 'pan' | 'select';
   twistRotate: boolean;
+  /** Show the step-by-step beginner tips banner. */
+  tutorial: boolean;
+  /** Idle villagers automatically go back to work after a few seconds. */
+  autoWork: boolean;
+  /** A villager builds a House automatically when population is nearly full. */
+  autoHouse: boolean;
+  /** Town Centers start with auto-train villagers switched on. */
+  autoTrain: boolean;
+  /** Lower graphics quality automatically when the frame rate drops. */
+  autoQuality: boolean;
+  /** Prefs schema version (used to migrate older saved preferences). */
+  pv?: number;
 }
 
 const PREFS_KEY = 'aoak-prefs';
+const PREFS_VERSION = 2;
 export const SAVE_KEYS = ['aoak-save-auto', 'aoak-save-1', 'aoak-save-2', 'aoak-save-3'];
 
 export class App {
@@ -89,14 +103,30 @@ export class App {
   private measuredRenderMs = 0;
   private measuredSince = 0;
   idleCycle = 0;
+  tutorial!: Tutorial;
+  autoQuality = new AutoQuality();
+  private autoWorkT = 0;
 
   constructor() {
     this.canvas = document.getElementById('game') as HTMLCanvasElement;
-    this.prefs = { quality: defaultQuality(), realism: true, haze: true, perspective: true, showFps: false, fullRes: false, sfx: 0.7, music: 0.35, extraMusic: true, muted: false, speed: 1.7, showHotkeys: !isTouch(), edgeScroll: false, oneFinger: 'pan', twistRotate: true };
-    try { Object.assign(this.prefs, JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}')); } catch { /* ignore */ }
+    // Phones default to the light "classic" art: it starts in a few seconds instead of
+    // downloading ~25 MB of photographic textures, and runs far smoother.
+    const touch = isTouch();
+    this.prefs = {
+      quality: defaultQuality(), realism: !touch, haze: !touch, perspective: true, showFps: false, fullRes: false, sfx: 0.7, music: 0.35, extraMusic: true, muted: false,
+      speed: 1.7, showHotkeys: !touch, edgeScroll: false, oneFinger: 'pan', twistRotate: true,
+      tutorial: true, autoWork: true, autoHouse: true, autoTrain: true, autoQuality: true, pv: PREFS_VERSION,
+    };
+    try {
+      const saved = JSON.parse(localStorage.getItem(PREFS_KEY) ?? '{}') as Partial<Prefs>;
+      // Older preferences predate the mobile performance defaults: reset graphics once.
+      if ((saved.pv ?? 0) < PREFS_VERSION) { delete saved.realism; delete saved.haze; delete saved.quality; saved.pv = PREFS_VERSION; }
+      Object.assign(this.prefs, saved);
+    } catch { /* ignore */ }
     this.hud = new Hud(this);
     this.input = new Input(this);
     this.menus = new Menus(this);
+    this.tutorial = new Tutorial(this);
     window.addEventListener('resize', () => this.renderer?.resize());
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && this.game && !this.game.over) this.saveTo(SAVE_KEYS[0]);
@@ -142,6 +172,12 @@ export class App {
         // pre-warm icons
         this.hud.prewarm();
         this.startLoop();
+        this.tutorial.reset(!save);
+        this.autoQuality.reset();
+        this.autoWorkT = 0;
+        if (!save && this.prefs.autoTrain) {
+          for (const b of this.game.buildings.values()) if (b.o === this.game.human && b.t === 'town_center') this.game.cmdAutoVillagers(b.o, b.id, true);
+        }
         if (!save) this.hud.toast(`You are the ${CIVS[this.game.players[this.game.human].civ].name}. Build your economy and conquer your enemies!`, 'gold', 6000);
       } catch (e) {
         if (token !== this.startToken) return;
@@ -164,6 +200,7 @@ export class App {
     this.renderer = null;
     this.game = null;
     this.hud.show(false);
+    this.tutorial?.hide();
   }
 
   quitToMenu() {
@@ -261,6 +298,16 @@ export class App {
       this.measuredSince = 0; this.measuredFrames = 0; this.measuredRenderMs = 0;
     }
     this.hud.update(dt);
+    this.tutorial.update(dt);
+    this.autoQuality.sample(this, now);
+    if (!this.paused && !g.over) {
+      this.autoWorkT += dt;
+      if (this.autoWorkT > 2) {
+        this.autoWorkT = 0;
+        if (this.prefs.autoHouse) autoHouse(this);
+        if (this.prefs.autoWork) autoWork(this, false);
+      }
+    }
     if (this.prefs.showFps) this.perfSample(now, performance.now() - cpuStart);
     if (g.over && !this.overShown) {
       this.overShown = true;
@@ -952,7 +999,9 @@ export function isTouch() {
 function defaultQuality(): Quality {
   const mobile = isTouch();
   const mem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 4;
-  if (mobile && mem <= 3) return 'low';
+  const cores = navigator.hardwareConcurrency ?? 4;
+  // Phones start on Low unless clearly high-end; auto-quality can't go *up*, so err fast.
+  if (mobile && (mem <= 4 || cores <= 6)) return 'low';
   if (mobile) return 'medium';
   return 'high';
 }

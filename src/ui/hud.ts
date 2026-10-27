@@ -7,6 +7,7 @@ import { play } from '../audio/sfx';
 import type { App, Cmd } from './app';
 import { isTouch } from './app';
 import { ICON, uniqIds } from './icons';
+import { autoWork } from './assist';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const HOTKEYS = 'QWERTYUIASDFGHJKZXCVBNM';
@@ -42,6 +43,7 @@ export class Hud {
 </div>
 <div id="sidebtns" class="hidden">
   <button class="side" id="sb-idle" title="Idle villager (.)">${ICON.idle}<span class="badge hidden">0</span></button>
+  <button class="side hidden pulse" id="sb-work" title="Put idle villagers to work">${ICON.work}</button>
   <button class="side" id="sb-army" title="Select army (,)">${ICON.army}</button>
   <button class="side" id="sb-home" title="Town Center (H)">${ICON.home}</button>
   <button class="side hidden" id="sb-alert" title="Go to attack (Space)">${ICON.target}</button>
@@ -91,6 +93,10 @@ export class Hud {
       this.app.renderer?.lookAt(...g.epos(tc));
     });
     on('sb-army', () => this.app.selectArmy());
+    on('sb-work', () => {
+      const n = autoWork(this.app, true);
+      this.toast(n ? `${n} villager${n > 1 ? 's' : ''} sent to work` : 'Nothing to gather nearby.', n ? 'good' : undefined, 1500);
+    });
     onHold('sb-idle', () => this.app.selectIdleVillager(true));
     onHold('sb-army', () => this.app.selectArmy(true));
     on('sb-queue', () => {
@@ -253,6 +259,7 @@ export class Hud {
     const badge = $('sb-idle').querySelector('.badge') as HTMLElement;
     badge.textContent = String(idle);
     badge.classList.toggle('hidden', idle === 0);
+    $('sb-work').classList.toggle('hidden', idle === 0);
     $('sb-alert').classList.toggle('hidden', !app.lastAlert || g.time - app.lastAlert.t > 30);
     const hasUnits = app.ownUnits().length > 0;
     if (!hasUnits) app.queueMode = false;
