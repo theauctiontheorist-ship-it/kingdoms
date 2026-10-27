@@ -530,7 +530,18 @@ export const CIVS: Record<CivId, CivDef> = {
     mods: [{ stat: 'techCost', mul: 0.9 }, { stat: 'popCap', add: 10 }, { stat: 'armorM', add: 1, c: ['siege'] }, { stat: 'armorP', add: 1, c: ['siege'] }],
     favour: ['archer', 'chu_ko_nu', 'skirmisher', 'spearman'] },
 };
-export const CIV_LIST = Object.values(CIVS);
+/**
+ * Playable civilizations. The game is trimmed to two easy-to-learn, contrasting
+ * civilizations: Britons (archers) and Franks (cavalry). The full CIVS table is
+ * kept so older save games that used other civilizations still load.
+ */
+export const PLAYABLE_CIVS: CivId[] = ['britons', 'franks'];
+export const CIV_LIST = PLAYABLE_CIVS.map((id) => CIVS[id]);
+/** Short beginner-friendly summary for each playable civilization. */
+export const CIV_BLURB: Partial<Record<CivId, string>> = {
+  britons: 'Archer specialists. Shoot enemies from a distance — great for defending.',
+  franks: 'Cavalry specialists. Strong, fast knights — great for attacking.',
+};
 
 // ---------------------------------------------------------------------------
 // Economy constants
