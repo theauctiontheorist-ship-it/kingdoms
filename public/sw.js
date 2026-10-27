@@ -1,5 +1,5 @@
 // Offline support: network-first for the page, cache-first for hashed assets.
-const CACHE = 'aoak-v5-shepherd-hud';
+const CACHE = 'aoak-v6-easy-play';
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => {
